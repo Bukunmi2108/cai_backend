@@ -1,5 +1,6 @@
-from sqlalchemy import Column, String, Text, ForeignKey
+from sqlalchemy import Column, String, ForeignKey, DateTime
 from sqlalchemy.dialects.postgresql import UUID, JSONB 
+from sqlalchemy.sql import func
 import uuid
 from .db import Base
 from sqlalchemy.orm import relationship
@@ -18,4 +19,5 @@ class ChatHistory(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     title = Column(String, nullable=True)  # Add the title column
     messages = Column(JSONB) 
+    created_at = Column(DateTime, server_default=func.now())  # Add the timestamp column
     user = relationship("User", back_populates="chats")

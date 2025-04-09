@@ -1,8 +1,9 @@
 import datetime
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Any, List, Dict, Optional
 import uuid
 
+from fastapi import UploadFile
 from sqlalchemy import JSON
 
 class UserCreate(BaseModel):
@@ -27,18 +28,18 @@ class Message(BaseModel):
     content: str
 
 class ChatRequest(BaseModel):
-    chat_id: Optional[uuid.UUID] = None 
+    chat_id: Optional[uuid.UUID] = None
     message: str
 
 class ChatResponse(BaseModel):
     response: str
     history: List[Message]
     chat_id: uuid.UUID
-    title: Optional[str] = None 
+    title: Optional[str] = None
 
 class ChatHistoryResponse(BaseModel):
     id: uuid.UUID
-    title: Optional[str] = None  # Add the title field
+    title: Optional[str] = None
     messages: List[Message]
     user_id: uuid.UUID
 
@@ -55,35 +56,69 @@ class TemplateCategoryCreate(TemplateCategoryBase):
 class TemplateCategoryUpdate(TemplateCategoryBase):
     pass
 
-class TemplateCategory(TemplateCategoryBase):
+class DocumentTemplateBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+    category_id: uuid.UUID
+
+class DocumentTemplateCreate(DocumentTemplateBase):
+    fields_schema_file: UploadFile
+    template_content_file: UploadFile
+
+class DocumentTemplateUpdate(DocumentTemplateBase):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    fields_schema_file: Optional[UploadFile] = None
+    template_content_file: Optional[UploadFile] = None
+    category_id: Optional[uuid.UUID] = None
+
+# --- Schemas for Read Operations (Handling Circular Dependency) ---
+
+class DocumentTemplateRead(DocumentTemplateBase):
     id: uuid.UUID
-    templates: Optional[List["DocumentTemplate"]] = None  # Forward reference to avoid circular dependency
+    created_at: datetime.datetime
+    fields_schema: Dict[str, Any]
+    template_content: str
+    category: Optional["TemplateCategoryReadWithoutTemplates"] = None  # Exclude templates here
 
     class Config:
         from_attributes = True
 
-# --- DocumentTemplate Schemas ---
+class TemplateCategoryReadWithoutTemplates(TemplateCategoryBase):
+    id: uuid.UUID
 
-class DocumentTemplateBase(BaseModel):
-    name: str
-    description: Optional[str] = None
+    class Config:
+        from_attributes = True
+
+class TemplateCategoryRead(TemplateCategoryBase):
+    id: uuid.UUID
+    templates: Optional[List["DocumentTemplateReadWithoutCategory"]] = None
+
+    class Config:
+        from_attributes = True
+
+class DocumentTemplateReadWithoutCategory(DocumentTemplateBase):
+    id: uuid.UUID
+    created_at: datetime.datetime
     fields_schema: Dict[str, Any]
     template_content: str
-    category_id: uuid.UUID
 
-class DocumentTemplateCreate(DocumentTemplateBase):
-    pass
+    class Config:
+        from_attributes = True
 
-class DocumentTemplateUpdate(DocumentTemplateBase):
-    name: Optional[str] = None
-    fields_schema: Optional[Dict[str, Any]] = None
-    template_content: Optional[str] = None
-    category_id: Optional[uuid.UUID] = None
+class TemplateCategory(TemplateCategoryBase):
+    id: uuid.UUID
+    templates: Optional[List["DocumentTemplateRead"]] = None
+
+    class Config:
+        from_attributes = True
 
 class DocumentTemplate(DocumentTemplateBase):
     id: uuid.UUID
     created_at: datetime.datetime
-    category: Optional[TemplateCategory] = None
+    fields_schema: Dict[str, Any]
+    template_content: str
+    category: Optional["TemplateCategory"] = None
 
     class Config:
         from_attributes = True
@@ -92,6 +127,3 @@ class DocumentTemplate(DocumentTemplateBase):
 
 class TemplateSchemaResponse(BaseModel):
     fields_schema: Dict[str, Any]
-
-# Update forward reference
-TemplateCategory.model_rebuild()

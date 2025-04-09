@@ -1,4 +1,6 @@
-from sqlalchemy import Column, String, ForeignKey, DateTime
+import string
+from tempfile import template
+from sqlalchemy import TEXT, Column, String, ForeignKey, DateTime
 from sqlalchemy.dialects.postgresql import UUID, JSONB 
 from sqlalchemy.sql import func
 import uuid
@@ -21,3 +23,20 @@ class ChatHistory(Base):
     messages = Column(JSONB) 
     created_at = Column(DateTime, server_default=func.now())  # Add the timestamp column
     user = relationship("User", back_populates="chats")
+
+class DocumentTemplate(Base):
+    __tablename__="document_templates"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String, unique=True)
+    description = Column(TEXT, nullable=True)
+    fields_schema = Column(JSONB)
+    template_content = Column(TEXT, nullable=False)
+    category_id = Column(UUID(as_uuid=True), ForeignKey("template_categories.id"))
+    created_at = Column(DateTime, server_default=func.now())
+    category = relationship("TemplateCategory", back_populates="templates")
+
+class TemplateCategory(Base):
+    __tablename__='template_categories'
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String, unique=True)
+    templates = relationship("DocumentTemplate", back_populates='category')

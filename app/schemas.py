@@ -1,6 +1,9 @@
+import datetime
 from pydantic import BaseModel, EmailStr
-from typing import List, Dict, Optional
+from typing import Any, List, Dict, Optional
 import uuid
+
+from sqlalchemy import JSON
 
 class UserCreate(BaseModel):
     username: str
@@ -41,3 +44,54 @@ class ChatHistoryResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class TemplateCategoryBase(BaseModel):
+    name: str
+
+class TemplateCategoryCreate(TemplateCategoryBase):
+    pass
+
+class TemplateCategoryUpdate(TemplateCategoryBase):
+    pass
+
+class TemplateCategory(TemplateCategoryBase):
+    id: uuid.UUID
+    templates: Optional[List["DocumentTemplate"]] = None  # Forward reference to avoid circular dependency
+
+    class Config:
+        from_attributes = True
+
+# --- DocumentTemplate Schemas ---
+
+class DocumentTemplateBase(BaseModel):
+    name: str
+    description: Optional[str] = None
+    fields_schema: Dict[str, Any]
+    template_content: str
+    category_id: uuid.UUID
+
+class DocumentTemplateCreate(DocumentTemplateBase):
+    pass
+
+class DocumentTemplateUpdate(DocumentTemplateBase):
+    name: Optional[str] = None
+    fields_schema: Optional[Dict[str, Any]] = None
+    template_content: Optional[str] = None
+    category_id: Optional[uuid.UUID] = None
+
+class DocumentTemplate(DocumentTemplateBase):
+    id: uuid.UUID
+    created_at: datetime.datetime
+    category: Optional[TemplateCategory] = None
+
+    class Config:
+        from_attributes = True
+
+# --- Response Schema for Template Schema ---
+
+class TemplateSchemaResponse(BaseModel):
+    fields_schema: Dict[str, Any]
+
+# Update forward reference
+TemplateCategory.model_rebuild()

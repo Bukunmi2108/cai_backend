@@ -136,10 +136,34 @@ def read_template_by_name(template_name: str, db: Session = Depends(get_db), cur
         raise HTTPException(status_code=404, detail="Template not found")
     return db_template
 
-# --- Example of a route to get the schema for a specific template ---
+# --- Route to get the schema for a specific template ---
 @router.get("/{template_id}/schema", response_model=schemas.TemplateSchemaResponse)
 def read_template_schema(template_id: UUID, db: Session = Depends(get_db), current_user: bool = Depends(get_current_active_user)):
     db_template = db.query(models.DocumentTemplate).filter(models.DocumentTemplate.id == template_id).first()
     if db_template is None:
         raise HTTPException(status_code=404, detail="Template not found")
     return {"fields_schema": db_template.fields_schema}
+
+# --- Route to get the markdown for a specific template ---
+@router.post("/{template_id}/markdown", response_model=schemas.TemplateMarkdownResponse)
+def read_template_markdown(
+    template_id: UUID,
+    field_data: Dict[str, str],
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_active_user),
+):
+    """
+    Retrieves the markdown content for a specific document template,
+    populated with the provided field data.
+    """
+    db_template = db.query(models.DocumentTemplate).filter(models.DocumentTemplate.id == template_id).first()
+    if db_template is None:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    markdown_content = db_template.template_content
+
+    for field, value in field_data.items():
+        placeholder = f"{{{{{field}}}}}"
+        markdown_content = markdown_content.replace(placeholder, value)
+
+    return schemas.TemplateMarkdownResponse(template_content=markdown_content)

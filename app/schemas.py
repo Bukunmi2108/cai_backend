@@ -127,3 +127,7 @@ class DocumentTemplate(DocumentTemplateBase):
 
 class TemplateSchemaResponse(BaseModel):
     fields_schema: Dict[str, Any]
+
+# --- Response Schema for Template markdown ---
+class TemplateMarkdownResponse(BaseModel):
+    template_content: str

@@ -34,8 +34,8 @@ def read_categories(skip: int = 0, limit: int = 100, db: Session = Depends(get_d
     return categories
 
 @router.get("/info", response_model=List[schemas.TemplateCategoryReadWithoutTemplates])
-def read_categories_names_and_id(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_active_user)):
-    categories = db.query(models.TemplateCategory).offset(skip).limit(limit).all()
+def read_categories_names_and_id(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_active_user)):
+    categories = db.query(models.TemplateCategory).all()
     return categories
 
 @router.get("/{category_id}", response_model=schemas.TemplateCategoryRead)

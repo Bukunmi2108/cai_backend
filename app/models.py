@@ -30,7 +30,7 @@ class DocumentTemplate(Base):
     name = Column(String, unique=True)
     description = Column(TEXT, nullable=True)
     fields_schema = Column(JSONB)
-    template_content = Column(TEXT, nullable=False)
+    template_content = Column(JSONB, nullable=False)
     category_id = Column(UUID(as_uuid=True), ForeignKey("template_categories.id"))
     created_at = Column(DateTime, server_default=func.now())
     category = relationship("TemplateCategory", back_populates="templates")

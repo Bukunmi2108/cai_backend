@@ -63,13 +63,13 @@ class DocumentTemplateBase(BaseModel):
 
 class DocumentTemplateCreate(DocumentTemplateBase):
     fields_schema_file: UploadFile
-    template_content_file: UploadFile
+    template_content_fdict: UploadFile
 
 class DocumentTemplateUpdate(DocumentTemplateBase):
     name: Optional[str] = None
     description: Optional[str] = None
     fields_schema_file: Optional[UploadFile] = None
-    template_content_file: Optional[UploadFile] = None
+    template_content_fdict: Optional[UploadFile] = None
     category_id: Optional[uuid.UUID] = None
 
 # --- Schemas for Read Operations (Handling Circular Dependency) ---
@@ -78,7 +78,7 @@ class DocumentTemplateRead(DocumentTemplateBase):
     id: uuid.UUID
     created_at: datetime.datetime
     fields_schema: Dict[str, Any]
-    template_content: str
+    template_content: dict
     category: Optional["TemplateCategoryReadWithoutTemplates"] = None  # Exclude templates here
 
     class Config:
@@ -101,7 +101,7 @@ class DocumentTemplateReadWithoutCategory(DocumentTemplateBase):
     id: uuid.UUID
     created_at: datetime.datetime
     fields_schema: Dict[str, Any]
-    template_content: str
+    template_content: dict
 
     class Config:
         from_attributes = True
@@ -117,7 +117,7 @@ class DocumentTemplate(DocumentTemplateBase):
     id: uuid.UUID
     created_at: datetime.datetime
     fields_schema: Dict[str, Any]
-    template_content: str
+    template_content: dict
     category: Optional["TemplateCategory"] = None
 
     class Config:
@@ -130,4 +130,7 @@ class TemplateSchemaResponse(BaseModel):
 
 # --- Response Schema for Template markdown ---
 class TemplateMarkdownResponse(BaseModel):
-    template_content: str
+    template_content: dict
+    
+class ProcessedSfdtResponse(BaseModel):
+    processed_sfdt: dict

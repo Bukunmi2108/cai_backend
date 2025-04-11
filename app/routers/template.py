@@ -3,8 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Dict, Any, Optional
 from uuid import UUID
 import json
-
-from .. import models, schemas
+from .. import models, schemas, auth
 from ..db import get_db
 # from ..auth import auth
 
@@ -15,6 +14,17 @@ router = APIRouter(prefix="/template", tags=['Templates'])
 #     return current_user
 async def get_current_active_user():
     return True
+
+
+# --- SFDT Validation Helper ---
+def validate_sfdt(sfdt_content: dict) -> bool:
+    """Basic SFDT structure validation"""
+    if not isinstance(sfdt_content, dict):
+        return False
+    if 'sections' not in sfdt_content:
+        return False
+    return True
+
 
 # --- DocumentTemplate Routes ---
 
@@ -35,22 +45,27 @@ async def create_template(
     if fields_schema_file.content_type != "application/json":
         raise HTTPException(status_code=400, detail="Fields schema file must be JSON")
     
-    if template_content_file.content_type not in ["text/markdown", "text/plain"]:
-        raise HTTPException(status_code=400, detail="Template content file must be Markdown or plain text")
+    if template_content_file.content_type != "application/json":
+        raise HTTPException(status_code=400, detail="Template content must be SFDT JSON")
 
     try:
+        # Parse and validate fields schema
         fields_schema_content = await fields_schema_file.read()
         fields_schema = json.loads(fields_schema_content.decode("utf-8"))
+        
+        # Parse and validate SFDT
+        sfdt_content = json.loads((await template_content_file.read()).decode("utf-8"))
+        if not validate_sfdt(sfdt_content):
+            raise HTTPException(status_code=400, detail="Invalid SFDT structure")
+            
     except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="Invalid JSON in fields schema file")
-
-    template_content = (await template_content_file.read()).decode("utf-8")
+        raise HTTPException(status_code=400, detail="Invalid JSON format")
 
     db_template = models.DocumentTemplate(
         name=name,
         description=description,
         fields_schema=fields_schema,
-        template_content=template_content,
+        template_content=sfdt_content,  # Store as JSON
         category_id=category_id,
     )
     db.add(db_template)
@@ -60,13 +75,12 @@ async def create_template(
 
 @router.get("/get/all", response_model=List[schemas.DocumentTemplateRead])
 def read_templates(skip: int = 0, limit: int = 100, db: Session = Depends(get_db), current_user: bool = Depends(get_current_active_user)):
-    templates = db.query(models.DocumentTemplate).offset(skip).limit(limit).all()
-    return templates
+    return db.query(models.DocumentTemplate).offset(skip).limit(limit).all()
 
 @router.get("/get/{template_id}", response_model=schemas.DocumentTemplateRead)
 def read_template(template_id: UUID, db: Session = Depends(get_db), current_user: bool = Depends(get_current_active_user)):
     db_template = db.query(models.DocumentTemplate).filter(models.DocumentTemplate.id == template_id).first()
-    if db_template is None:
+    if not db_template:
         raise HTTPException(status_code=404, detail="Template not found")
     return db_template
 
@@ -82,7 +96,7 @@ async def update_template(
     current_user: bool = Depends(get_current_active_user),
 ):
     db_template = db.query(models.DocumentTemplate).filter(models.DocumentTemplate.id == template_id).first()
-    if db_template is None:
+    if not db_template:
         raise HTTPException(status_code=404, detail="Template not found")
 
     if fields_schema_file:
@@ -90,16 +104,20 @@ async def update_template(
             raise HTTPException(status_code=400, detail="Fields schema file must be JSON")
         try:
             fields_schema_content = await fields_schema_file.read()
-            fields_schema = json.loads(fields_schema_content.decode("utf-8"))
-            db_template.fields_schema = fields_schema
+            db_template.fields_schema = json.loads(fields_schema_content.decode("utf-8"))
         except json.JSONDecodeError:
-            raise HTTPException(status_code=400, detail="Invalid JSON in fields schema file")
+            raise HTTPException(status_code=400, detail="Invalid JSON in fields schema")
 
     if template_content_file:
-        if template_content_file.content_type not in ["text/markdown", "text/plain"]:
-            raise HTTPException(status_code=400, detail="Template content file must be Markdown or plain text")
-        template_content = (await template_content_file.read()).decode("utf-8")
-        db_template.template_content = template_content
+        if template_content_file.content_type != "application/json":
+            raise HTTPException(status_code=400, detail="Template content must be SFDT JSON")
+        try:
+            sfdt_content = json.loads((await template_content_file.read()).decode("utf-8"))
+            if not validate_sfdt(sfdt_content):
+                raise HTTPException(status_code=400, detail="Invalid SFDT structure")
+            db_template.template_content = sfdt_content
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid SFDT JSON")
 
     if name:
         db_template.name = name
@@ -108,19 +126,65 @@ async def update_template(
     if category_id:
         db_template.category_id = category_id
 
-    db.add(db_template)
     db.commit()
     db.refresh(db_template)
     return db_template
 
+# @router.delete("/delete/all", dependencies=[Depends(get_current_active_user)])
+# def delete_template(db: Session = Depends(get_db)):
+#     db_templates = db.query(models.DocumentTemplate).all()
+#     if not db_templates:
+#         raise HTTPException(status_code=404, detail="Templates not found")
+#     for template in db_templates:
+#         db.delete(template)
+#     db.commit()
+#     return 
+
+
 @router.delete("/delete/{template_id}", response_model=schemas.DocumentTemplateRead, dependencies=[Depends(get_current_active_user)])
 def delete_template(template_id: UUID, db: Session = Depends(get_db), current_user: bool = Depends(get_current_active_user)):
     db_template = db.query(models.DocumentTemplate).filter(models.DocumentTemplate.id == template_id).first()
-    if db_template is None:
+    if not db_template:
         raise HTTPException(status_code=404, detail="Template not found")
     db.delete(db_template)
     db.commit()
     return db_template
+
+# --- SFDT Processing Endpoint ---
+@router.post("/{template_id}/process", response_model=schemas.ProcessedSfdtResponse)
+async def process_sfdt_template(
+    template_id: UUID,
+    field_data: Dict[str, str],
+    db: Session = Depends(get_db),
+    current_user: bool = Depends(get_current_active_user),
+):
+    """
+    Populates SFDT template with field data and returns modified SFDT
+    """
+    db_template = db.query(models.DocumentTemplate).filter(models.DocumentTemplate.id == template_id).first()
+    if not db_template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    # Deep copy the SFDT content
+    processed_sfdt = json.loads(json.dumps(db_template.template_content))
+    
+    # Recursive placeholder replacement
+    def replace_placeholders(obj):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if isinstance(v, str):
+                    for field, value in field_data.items():
+                        obj[k] = v.replace(f"{{{{{field}}}}}", value)
+                else:
+                    replace_placeholders(v)
+        elif isinstance(obj, list):
+            for item in obj:
+                replace_placeholders(item)
+    
+    replace_placeholders(processed_sfdt)
+    
+    return {"processed_sfdt": processed_sfdt}
+
 
 # --- Additional Template Routes (Potentially Useful) ---
 
@@ -143,27 +207,3 @@ def read_template_schema(template_id: UUID, db: Session = Depends(get_db), curre
     if db_template is None:
         raise HTTPException(status_code=404, detail="Template not found")
     return {"fields_schema": db_template.fields_schema}
-
-# --- Route to get the markdown for a specific template ---
-@router.post("/{template_id}/markdown", response_model=schemas.TemplateMarkdownResponse)
-def read_template_markdown(
-    template_id: UUID,
-    field_data: Dict[str, str],
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_active_user),
-):
-    """
-    Retrieves the markdown content for a specific document template,
-    populated with the provided field data.
-    """
-    db_template = db.query(models.DocumentTemplate).filter(models.DocumentTemplate.id == template_id).first()
-    if db_template is None:
-        raise HTTPException(status_code=404, detail="Template not found")
-
-    markdown_content = db_template.template_content
-
-    for field, value in field_data.items():
-        placeholder = f"{{{{{field}}}}}"
-        markdown_content = markdown_content.replace(placeholder, value)
-
-    return schemas.TemplateMarkdownResponse(template_content=markdown_content)
